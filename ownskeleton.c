@@ -22,14 +22,13 @@
 
 pid_t background_pid = -1;
 int background = 0;
-// int interrupted = 0;
+int exit_status = 0;
 
 char *words[MAX_WORDS];
 size_t wordsplit(char const *line);
 char * expand(char const *word);
 
 void sigint_handler(int signum) {
-  // interrupted = 1;
 }
 
 int main(int argc, char *argv[])
@@ -64,17 +63,16 @@ int main(int argc, char *argv[])
         signal(SIGINT, SIG_IGN);
         // Get PS1 environment variable or set default value
         char *ps1 = getenv("PS1");
-        if (ps1 == NULL) {
-            ps1 = "$"; // Default prompt if PS1 is not set
+        // if (ps1 == NULL || *ps1 == '\0') {
+        //   ps1 = "$"; // Default prompt if PS1 is not set or empty
+        // }
+        // printf("%s", ps1);
+        if (ps1 == NULL || strlen(ps1) == 0) {
+          printf("$");
+        } else {
+          printf("%s", ps1);
         }
-        printf("%s", ps1);
     }
-
-    // if (interrupted == 1){
-    //   printf("\n");
-    //   interrupted = 0;
-    //   continue;
-    // }
 
     ssize_t line_len = getline(&line, &n, input);
     if (line_len == -1) {
@@ -139,13 +137,14 @@ int main(int argc, char *argv[])
         else if (child_pid == 0) {
             // Child process
             // Restore signals to their original dispositions
-            signal(SIGTSTP, SIG_DFL);
+            signal(SIGTSTP, SIG_IGN);
             signal(SIGINT, SIG_DFL);
             
             // Check for background execution
             int background = 0;
             if (nwords > 0 && strcmp(words[nwords - 1], "&") == 0) {
                 background = 1;
+                background_pid = getpid();
                 words[--nwords] = NULL; // Remove the "&" operator
             }
             
@@ -232,7 +231,14 @@ int main(int argc, char *argv[])
                 // Wait for the child to complete if not running in the background
                 int status;
                 waitpid(child_pid, &status, 0);
+
+                if (WIFEXITED(status)) {
+                    exit_status = WEXITSTATUS(status);
+                } else if (WIFSIGNALED(status)) {
+                    exit_status = 128 + WTERMSIG(status);
+                } 
             }
+            
         }
     }
   }
@@ -340,7 +346,11 @@ expand(char const *word)
       snprintf(pid_str, sizeof(pid_str), "%d", curr_PID);
       build_str(pid_str, NULL);
     }
-    else if (c == '?') build_str("<STATUS>", NULL);
+    else if (c == '?'){
+      char status[100];
+      snprintf(status, sizeof(status), "%d", exit_status);
+      build_str(status, NULL);
+    }
     else if (c == '{') {
       char param_name[end - start - 2];
       strncpy(param_name, start + 2, end - start - 3);
